@@ -1,0 +1,172 @@
+Excellent. Moving to the frontend is a crucial phase. With our powerful, well-documented backend API, we are perfectly positioned to build a slick, professional user interface.
+
+As your senior developer guide, I'll lay out a structured workflow. We will prioritize building a solid foundation, ensuring a great user experience (UX), and creating a maintainable codebase. We'll use Create React App for the setup and Material-UI (MUI) for a polished and responsive UI out of the box.
+
+Frontend Development Workflow for QUICKASSIST
+
+This workflow is broken down into "sprints" or phases, focusing on delivering complete features one by one. This approach avoids getting overwhelmed and ensures we have testable parts of the application at each stage.
+
+Phase 0: Foundation & Setup
+
+This is the most critical phase. Getting the foundation right will save us countless hours later.
+
+Project Setup:
+
+Use npx create-react-app quickassist-frontend to bootstrap the project.
+
+Install core dependencies: npm install @mui/material @emotion/react @emotion/styled @mui/icons-material react-router-dom axios.
+
+Material-UI (MUI): Our component library.
+
+React Router: For handling navigation between different pages/views.
+
+Axios: A robust HTTP client for making requests to our Django backend.
+
+Folder Structure (Crucial for Maintainability): We won't just dump files in src. We'll organize them professionally.
+
+Generated code
+quickassist-frontend/
+└── src/
+    ├── api/             # Centralized Axios configuration and API calls
+    ├── assets/          # Images, logos, etc.
+    ├── components/      # Reusable UI components (e.g., Header, ServiceCard, StyledButton)
+    ├── hooks/           # Custom React hooks (e.g., useAuth)
+    ├── contexts/        # React Context for global state (e.g., AuthContext)
+    ├── pages/           # Top-level components for each route/page (e.g., HomePage, LoginPage)
+    ├── theme/           # Material-UI custom theme configuration (colors, fonts)
+    ├── App.js           # Main application router
+    ├── index.js         # Entry point
+
+
+Global State Management (Authentication):
+
+Create an AuthContext. This context will provide authentication status (isAuthenticated), user data, and login/logout functions to the entire application. Any component can access it without "prop drilling".
+
+This context will handle storing JWT tokens in localStorage.
+
+API Service Layer (axios):
+
+Create a central Axios instance in src/api/axios.js.
+
+This instance will be configured with the base URL of our Django backend (http://127.0.0.1:8000/api/).
+
+We'll set up Axios interceptors. This is a powerful feature that will automatically attach the JWT access_token from localStorage to the Authorization header of every outgoing request. It can also automatically handle token refreshing using our refresh_token and /api/auth/token/refresh/ endpoint.
+
+Routing Setup (react-router-dom):
+
+In App.js, define all the application routes.
+
+Create PublicRoute and PrivateRoute wrapper components.
+
+PublicRoute: For pages like Login/Register. If the user is already logged in, it redirects them to the dashboard.
+
+PrivateRoute: Protects pages like the Dashboard or Booking screens. If the user is not logged in, it redirects them to the login page.
+
+Phase 1: Authentication & User Onboarding (Connects to /auth/ endpoints)
+
+Goal: Allow users to sign up and log in.
+
+UI/UX: Clean, simple forms with clear validation and error messages.
+
+Page: LoginPage.js: A form with fields for username/password. Uses the login function from AuthContext. On success, redirects to the dashboard.
+
+Page: RegisterPage.js: A form with all required user fields. Should include a toggle/radio button for "I am a Customer" vs. "I am a Service Provider". Calls our /api/auth/register/ endpoint.
+
+Phase 2: The Customer Experience (Connects to /services/ & /bookings/)
+
+Goal: A logged-in customer can browse services and request one.
+
+UI/UX - Core Layout:
+
+Component: Header.js: A persistent header with the app logo, navigation links, and a user menu (showing user's name, with "Profile" and "Logout" options).
+
+Page: CustomerDashboard.js or HomePage.js: This will be the main view for the customer.
+
+UI/UX - Service Discovery:
+
+On the dashboard, fetch data from /api/services/.
+
+Component: ServiceCategoryList.js: Displays services grouped by category (e.g., "Roadside Assistance," "Home Services").
+
+Component: ServiceCard.js: A clickable card for each service (e.g., "Tire Change"), showing its name, description, and possibly an icon. Clicking this card initiates the booking process.
+
+UI/UX - The Booking Flow:
+
+Clicking a ServiceCard could open a confirmation modal.
+
+UX Best Practice: Automatically get the user's location using navigator.geolocation.getCurrentPosition(). Display a message like "Finding providers near you...".
+
+Make a POST request to /api/bookings/ with the service_id and location.
+
+Redirect to a new page: BookingStatusPage.js (/booking/:bookingId).
+
+Phase 3: The Live Experience (Booking Status & Real-Time)
+
+Goal: The customer and provider can track the live status of an active job.
+
+Page: BookingStatusPage.js (/booking/:bookingId): This is the most dynamic page.
+
+Data: Fetches initial booking details from /api/bookings/{id}/.
+
+UX (Customer View):
+
+Displays booking status (ACCEPTED, IN_PROGRESS, etc.).
+
+Shows Provider's profile info (name, photo, average rating).
+
+Component: Map.js (using Mapbox/Leaflet): Displays the customer's location and will display the provider's real-time location.
+
+Component: ChatWindow.js: A full chat component that connects to our ws://.../ws/chat/{bookingId}/ WebSocket endpoint.
+
+Real-time Tracking: The page will also connect to ws://.../ws/location/{bookingId}/ and update the provider's marker on the map whenever a new location is received.
+
+UX (Provider View):
+
+The same page, but with different controls. It should show "Start Job" and "Complete Job" buttons. Clicking these makes a PATCH request to the /start_job/ or /complete_job/ actions on the booking endpoint.
+
+The provider's view will send location data, not just receive it.
+
+Phase 4: The Provider Experience
+
+Goal: A provider can manage their status and view their job history.
+
+Page: ProviderDashboard.js:
+
+Component: DutyToggle.js: A prominent switch/toggle to call the /api/provider/status/ endpoint to go on/off duty.
+
+Component: ProfileEditor.js: A simple form to PATCH /api/providers/{user_id}/ to update their bio.
+
+Component: JobHistory.js: Fetches and displays a list of completed jobs from /api/bookings/.
+
+Phase 5: Closing the Loop (Ratings)
+
+Goal: A customer can rate a completed service.
+
+On the BookingStatusPage.js, when the booking status is COMPLETED, the customer should see a Component: RatingForm.js.
+
+This form will have a 1-5 star selector (MUI has a <Rating> component) and a text area for comments.
+
+Submitting the form makes a POST request to the /api/bookings/{id}/rate_job/ action.
+
+Visual Design & UX Principles (MUI Best Practices)
+
+Consistency: Use a centralized theme file (src/theme/theme.js) to define your primary color, secondary color, typography (fonts), and spacing. This ensures every button, card, and component looks like it belongs to the same application.
+
+Clarity:
+
+Use loading spinners (<CircularProgress />) or skeletons for any part of the UI that is fetching data. Never show a blank screen.
+
+Use Snackbars (<Snackbar />) for non-intrusive feedback (e.g., "Profile updated successfully," "Service requested").
+
+Use clear, concise language on all buttons and labels. "Request Service" is better than "Submit."
+
+Responsiveness: Use MUI's Grid system and Stack component extensively. All layouts must be mobile-first, looking great on a small screen and then scaling up to a desktop.
+
+Accessibility: Use proper HTML semantics. MUI components are generally accessible, but ensure you use aria-label attributes where necessary, especially for icon-only buttons.
+
+Intuitive Navigation: A user should never feel lost. The Header and a possible Drawer for mobile should provide clear navigation paths. The back button should work as expected.
+
+This structured workflow gives us a clear path forward. We start by building the unbreakable foundation (Phase 0) and then add features piece by piece, always connecting to the well-documented API we just finished.
+
+Ready to start with Phase 0: Foundation & Setup?
+ 

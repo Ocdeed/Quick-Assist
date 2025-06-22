@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import { Box, TextField, Button, Paper, List, ListItem, ListItemText, Typography } from '@mui/material';
 
-const ChatWindow = ({ bookingId }) => {
+const ChatWindow = ({ bookingId, currentUser }) => {
     const [messageHistory, setMessageHistory] = useState([]);
     const [message, setMessage] = useState('');
     const chatSocketUrl = `ws://127.0.0.1:8000/ws/chat/${bookingId}/`;
@@ -51,11 +51,26 @@ const ChatWindow = ({ bookingId }) => {
                 <Typography variant="caption">Status: {connectionStatus}</Typography>
             </Box>
             <List ref={chatBoxRef} sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
-                {messageHistory.map((msg, idx) => (
-                    <ListItem key={idx}>
-                        <ListItemText primary={msg.message} secondary={`${msg.sender} - ${new Date(msg.timestamp).toLocaleTimeString()}`} />
-                    </ListItem>
-                ))}
+                {messageHistory.map((msg, idx) => {
+                    const isCurrentUser = msg.sender === currentUser?.username;
+                    return (
+                        <ListItem key={idx} sx={{ justifyContent: isCurrentUser ? 'flex-end' : 'flex-start' }}>
+                            <Box sx={{
+                                bgcolor: isCurrentUser ? 'primary.main' : 'grey.300',
+                                color: isCurrentUser ? 'primary.contrastText' : 'text.primary',
+                                p: 1,
+                                borderRadius: 2,
+                                maxWidth: '75%'
+                            }}>
+                                <ListItemText 
+                                    primary={msg.message} 
+                                    secondary={`${msg.sender} - ${new Date(msg.timestamp).toLocaleTimeString()}`} 
+                                    secondaryTypographyProps={{ color: isCurrentUser ? 'rgba(255,255,255,0.7)' : 'text.secondary' }}
+                                />
+                            </Box>
+                        </ListItem>
+                    );
+                })}
             </List>
             <Box p={2} sx={{ display: 'flex', gap: 1, borderTop: '1px solid #ddd' }}>
                 <TextField 

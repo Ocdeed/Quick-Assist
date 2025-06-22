@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Container, Grid, Box, Typography, Paper, CircularProgress,
-    Alert, Button, Chip
+    Alert, Button, Chip, Avatar, Rating
 } from '@mui/material';
 import Header from '../components/Header';
 import MapComponent from '../components/Map';
@@ -96,7 +96,6 @@ const BookingStatusPage = () => {
     if (!booking) return <Typography>No booking found.</Typography>;
 
     const customerLocation = { latitude: booking.booking_latitude, longitude: booking.booking_longitude };
-    // eslint-disable-next-line no-unused-vars
     const isCustomer = user?.user_type === 'CUSTOMER';
     const isProvider = user?.user_type === 'PROVIDER';
     
@@ -105,7 +104,7 @@ const BookingStatusPage = () => {
             <Header />
             <Container maxWidth="lg" sx={{ mt: 4 }}>
                 {/* --- HEADER --- */}
-                <Paper sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Paper sx={{ p: 2, mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Box>
                         <Typography variant="h5">Booking Status</Typography>
                         <Chip label={booking.status.replace('_', ' ')} color="primary" sx={{mt: 1}}/>
@@ -123,17 +122,39 @@ const BookingStatusPage = () => {
                     )}
                 </Paper>
 
+                {/* --- Details Section --- */}
+                <Grid container spacing={3} sx={{ mb: 3 }}>
+                    <Grid item xs={12} md={isProvider ? 12 : 8}>
+                        <Paper sx={{ p: 2, height: '100%' }}>
+                            <Typography variant="h6">Job Details</Typography>
+                            <Typography><b>Service:</b> {booking.service.name}</Typography>
+                            <Typography><b>Address:</b> {booking.booking_address}</Typography>
+                            {isProvider && <Typography><b>Customer:</b> {booking.customer.username}</Typography>}
+                        </Paper>
+                    </Grid>
+                    {isCustomer && booking.provider && (
+                        <Grid item xs={12} md={4}>
+                            <Paper sx={{ p: 2, textAlign: 'center', height: '100%' }}>
+                                <Typography variant="h6">Your Provider</Typography>
+                                <Avatar sx={{ width: 80, height: 80, margin: '16px auto' }} src={booking.provider.provider_profile?.profile_picture_url} />
+                                <Typography variant="body1" fontWeight="bold">{booking.provider.username}</Typography>
+                                <Rating value={booking.provider.provider_profile?.average_rating || 0} readOnly />
+                            </Paper>
+                        </Grid>
+                    )}
+                </Grid>
+
                 {/* --- MAIN GRID (MAP & CHAT) --- */}
                 <Grid container spacing={3} sx={{ height: '65vh' }}>
-                <Grid item xs={12} md={8}>
-                {/* We just need to pass the locations. The Map component handles the rest. */}
-                {customerLocation && 
-                <MapComponent 
-                customerLocation={customerLocation} 
-                providerLocation={providerLocation} />}
-            </Grid>
+                    <Grid item xs={12} md={8}>
+                        {/* We just need to pass the locations. The Map component handles the rest. */}
+                        {customerLocation && 
+                        <MapComponent 
+                        customerLocation={customerLocation} 
+                        providerLocation={providerLocation} />}
+                    </Grid>
                     <Grid item xs={12} md={4} sx={{ height: '100%' }}>
-                        <ChatWindow bookingId={bookingId} />
+                        <ChatWindow bookingId={bookingId} currentUser={user} />
                     </Grid>
                 </Grid>
             </Container>

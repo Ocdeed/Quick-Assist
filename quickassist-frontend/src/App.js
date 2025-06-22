@@ -10,9 +10,21 @@ import Box from '@mui/material/Box';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CustomerDashboard from './pages/CustomerDashboard';
+// import ProviderDashboard from './pages/ProviderDashboard'; // Future: A dashboard for providers
 import BookingStatusPage from './pages/BookingStatusPage'; 
 
 
+
+const DashboardRedirect = () => {
+    const { user } = useAuth();
+    // This component can be expanded to route to different dashboards.
+    // For now, all authenticated users are sent to the CustomerDashboard.
+    if (user?.user_type === 'PROVIDER') {
+        // return <ProviderDashboard />;
+        return <CustomerDashboard />;
+    }
+    return <CustomerDashboard />;
+};
 
 const PrivateRoute = ({ children }) => {
     const { isAuthenticated, loading } = useAuth();
@@ -43,7 +55,7 @@ function App() {
         path="/" 
         element={
           <PrivateRoute>
-            <CustomerDashboard /> {/* Use the real dashboard */}
+            <DashboardRedirect />
           </PrivateRoute>
         } 
       />

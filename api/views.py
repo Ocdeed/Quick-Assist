@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Q, Avg
 from django.utils import timezone
-from .mpesa_service import initiate_stk_push 
+from .mpesa_service import initiate_stk_push
 
 # We'll use ListAPIView for a read-only endpoint that lists all items.
 class ServiceCategoryListView(generics.ListAPIView):
@@ -35,7 +35,9 @@ class UserProfileView(APIView):
     permission_classes = [permissions.IsAuthenticated] # CRITICAL: This view requires a valid token
 
     def get(self, request, format=None):
-        serializer = UserProfileSerializer(request.user)
+        # Optimize: use select_related to fetch provider_profile in a single query
+        user = User.objects.select_related('provider_profile').get(pk=request.user.pk)
+        serializer = UserProfileSerializer(user)
         return Response(serializer.data)
     
 # --- Provider-Specific Views ---
@@ -84,7 +86,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     """
     serializer_class = BookingSerializer
     permission_classes = [permissions.IsAuthenticated]
-
+    
     def get_queryset(self):
         """
         This view should return a list of all the bookings
@@ -94,9 +96,17 @@ class BookingViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.user_type == 'CUSTOMER':
-            return Booking.objects.filter(customer=user).order_by('-created_at')
+            return Booking.objects.filter(customer=user).select_related(
+                'customer', 'provider', 'service', 'service__category'
+            ).prefetch_related(
+                'provider__provider_profile'
+            ).order_by('-created_at')
         elif user.user_type == 'PROVIDER':
-            return Booking.objects.filter(provider=user).order_by('-created_at')
+            return Booking.objects.filter(provider=user).select_related(
+                'customer', 'provider', 'service', 'service__category'
+            ).prefetch_related(
+                'provider__provider_profile'
+            ).order_by('-created_at')
         return Booking.objects.none() # Should not happen if user_type is enforced
 
     def perform_create(self, serializer):
@@ -277,7 +287,11 @@ class ProviderProfileViewSet(viewsets.ModelViewSet): # <-- Change from ReadOnlyM
     - GET /api/providers/{user_id}/
     - PATCH /api/providers/{user_id}/
     """
-    queryset = ServiceProviderProfile.objects.filter(is_verified=True)
+    queryset = ServiceProviderProfile.objects.filter(is_verified=True).select_related(
+        'user'
+    ).prefetch_related(
+        'user__received_ratings'
+    )
     serializer_class = ProviderProfileSerializer
     lookup_field = 'user_id'
     

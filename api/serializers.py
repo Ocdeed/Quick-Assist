@@ -37,18 +37,33 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return user
     
 class UserProfileSerializer(serializers.ModelSerializer):
+    provider_profile = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'phone_number', 'first_name', 'last_name', 'user_type')
+        fields = ('id', 'username', 'email', 'phone_number', 'first_name', 'last_name', 'user_type', 'provider_profile')
+        
+    def get_provider_profile(self, obj):
+        """
+        Include provider profile data for providers, None for customers
+        """
+        if obj.user_type == 'PROVIDER' and hasattr(obj, 'provider_profile'):
+            return {
+                'is_on_duty': obj.provider_profile.on_duty,
+                'is_verified': obj.provider_profile.is_verified,
+                'average_rating': obj.provider_profile.average_rating,
+                'bio': obj.provider_profile.bio,
+            }
+        return None
         
 class ProviderStatusSerializer(serializers.Serializer):
     """
     Serializer for updating the provider's 'on_duty' status.
     """
-    on_duty = serializers.BooleanField()
+    is_on_duty = serializers.BooleanField()
 
     def update(self, instance, validated_data):
-        instance.on_duty = validated_data.get('on_duty', instance.on_duty)
+        instance.on_duty = validated_data.get('is_on_duty', instance.on_duty)
         instance.save()
         return instance
 
@@ -99,15 +114,14 @@ class BookingSerializer(serializers.ModelSerializer):
             service = Service.objects.get(id=service_id)
         except Service.DoesNotExist:
             raise serializers.ValidationError("The requested service does not exist.")
-            
-        # 3. THE MATCHING ALGORITHM
+              # 3. THE MATCHING ALGORITHM
         # Find all providers who are verified, on-duty, and have a location
         available_providers = ServiceProviderProfile.objects.filter(
             is_verified=True, 
             on_duty=True, 
             last_known_latitude__isnull=False,
             last_known_longitude__isnull=False
-        )
+        ).select_related('user')  # Optimize: pre-fetch user data to avoid N+1 queries
         
         if not available_providers.exists():
             raise serializers.ValidationError("No available providers found at the moment. Please try again later.")

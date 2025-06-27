@@ -22,7 +22,26 @@ const LoginPage = () => {
                 password,
             });
             login(response.data); // response.data contains access and refresh tokens
-            navigate('/'); // Redirect to homepage on successful login
+            
+            // Fetch user profile to determine redirect destination
+            const userResponse = await axiosInstance.get('/users/me/');
+            const user = userResponse.data;
+            
+            // Smart redirect logic based on user type and status
+            if (user.user_type === 'ADMIN') {
+                navigate('/admin/dashboard');
+            } else if (user.user_type === 'PROVIDER') {
+                if (!user.is_active) {
+                    // Suspended provider - redirect to suspended page
+                    navigate('/provider/suspended');
+                } else {
+                    // Active provider - redirect to provider dashboard
+                    navigate('/provider/dashboard');
+                }
+            } else {
+                // Customer or other user types - redirect to customer dashboard
+                navigate('/');
+            }
         } catch (err) {
             if (err.response && err.response.data) {
                 setError(err.response.data.detail || 'Failed to log in. Please check your credentials.');

@@ -109,6 +109,12 @@ DATABASES = {
     }
 }
 
+# Custom authentication backend that allows inactive users to log in
+AUTHENTICATION_BACKENDS = [
+    'api.authentication.AllowInactiveUserBackend',
+    'django.contrib.auth.backends.ModelBackend',  # Keep default as fallback
+]
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',

@@ -1,14 +1,22 @@
-from .permissions import IsProviderUser, IsCustomerUser, IsProfileOwner
+from .permissions import IsProviderUser, IsCustomerUser, IsProfileOwner, IsAdminUser
 from rest_framework import generics, permissions
-from .models import ServiceCategory, User, Booking, Rating, ServiceProviderProfile, Payment
-from .serializers import ServiceCategorySerializer, UserRegisterSerializer, UserProfileSerializer, ProviderStatusSerializer, ProviderLocationSerializer, BookingSerializer, RatingSerializer, ProviderProfileSerializer
+from rest_framework.exceptions import PermissionDenied
+from .models import ServiceCategory, User, Booking, Rating, ServiceProviderProfile, Payment, Service
+from .serializers import ServiceCategorySerializer, UserRegisterSerializer, UserProfileSerializer, ProviderStatusSerializer, ProviderLocationSerializer, BookingSerializer, RatingSerializer, ProviderProfileSerializer, AdminUserSerializer, ServiceSerializer, CustomTokenObtainPairSerializer, AdminServiceCategorySerializer, AdminServiceSerializer
 from rest_framework import status, viewsets
 from rest_framework.views import APIView  
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django.db.models import Q, Avg
+from django.db.models import Q, Avg, Count
 from django.utils import timezone
 from .mpesa_service import initiate_stk_push
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    Custom token view that allows suspended users to log in.
+    """
+    serializer_class = CustomTokenObtainPairSerializer
 
 # We'll use ListAPIView for a read-only endpoint that lists all items.
 class ServiceCategoryListView(generics.ListAPIView):
@@ -17,8 +25,7 @@ class ServiceCategoryListView(generics.ListAPIView):
     """
     queryset = ServiceCategory.objects.prefetch_related('services').all()
     serializer_class = ServiceCategorySerializer
-    # No authentication needed for browsing services
-    permission_classes = [] 
+    permission_classes = [permissions.IsAuthenticated]  # Require authentication 
     
 class UserRegisterView(generics.CreateAPIView):
     """
@@ -50,6 +57,14 @@ class ProviderStatusView(APIView):
 
     def patch(self, request, *args, **kwargs):
         provider_profile = request.user.provider_profile
+        
+        # Check if provider is trying to go on duty
+        requested_on_duty = request.data.get('is_on_duty', False)
+        
+        # Enforce admin approval gate: Only verified providers can go on duty
+        if requested_on_duty and not provider_profile.is_verified:
+            raise PermissionDenied("Your account must be approved by an administrator before you can go on duty.")
+        
         serializer = ProviderStatusSerializer(instance=provider_profile, data=request.data)
         
         if serializer.is_valid():
@@ -113,6 +128,51 @@ class BookingViewSet(viewsets.ModelViewSet):
         # When creating a booking, we pass the request context to the serializer
         # so it can access the logged-in user.
         serializer.save(customer=self.request.user)
+    
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsProviderUser])
+    def accept_booking(self, request, pk=None):
+        """
+        Action for a provider to accept a pending booking.
+        URL: POST /api/bookings/{id}/accept/
+        """
+        booking = self.get_object()
+
+        # Check if the current user is the assigned provider
+        if booking.provider != request.user:
+            return Response({'error': 'You are not authorized to accept this booking.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if the booking is in the correct state
+        if booking.status != 'PENDING':
+            return Response({'error': f'Cannot accept a booking with status {booking.status}.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        booking.status = 'ACCEPTED'
+        booking.accepted_at = timezone.now()
+        booking.save()
+        
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsProviderUser])
+    def decline_booking(self, request, pk=None):
+        """
+        Action for a provider to decline a pending booking.
+        URL: POST /api/bookings/{id}/decline/
+        """
+        booking = self.get_object()
+
+        # Check if the current user is the assigned provider
+        if booking.provider != request.user:
+            return Response({'error': 'You are not authorized to decline this booking.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if the booking is in the correct state
+        if booking.status != 'PENDING':
+            return Response({'error': f'Cannot decline a booking with status {booking.status}.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        booking.status = 'REJECTED'
+        booking.save()
+        
+        serializer = self.get_serializer(booking)
+        return Response(serializer.data)
         
     @action(detail=True, methods=['patch'], permission_classes=[permissions.IsAuthenticated, IsProviderUser])
     def start_job(self, request, pk=None):
@@ -277,6 +337,97 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     
     
+class CurrentProviderProfileView(APIView):
+    """
+    API endpoint for a provider to get and update their own profile.
+    - GET /api/users/provider/profile/
+    - PATCH /api/users/provider/profile/
+    """
+    permission_classes = [permissions.IsAuthenticated, IsProviderUser]
+
+    def get(self, request, format=None):
+        """Get the current provider's profile with additional fields"""
+        try:
+            # Get the provider's profile with related data
+            provider_profile = ServiceProviderProfile.objects.select_related(
+                'user', 'service_offered', 'service_offered__category'
+            ).get(user=request.user)
+            
+            # Build response data
+            response_data = {
+                'username': provider_profile.user.username,
+                'email': provider_profile.user.email,
+                'first_name': provider_profile.user.first_name,
+                'last_name': provider_profile.user.last_name,
+                'phone_number': provider_profile.user.phone_number,
+                'bio': provider_profile.bio,
+                'is_verified': provider_profile.is_verified,
+                'is_on_duty': provider_profile.on_duty,
+                'average_rating': provider_profile.average_rating,
+                'profile_picture': None,  # TODO: Add profile picture handling
+                'service_category': provider_profile.service_offered.category.id if provider_profile.service_offered else '',
+                'service_id': provider_profile.service_offered.id if provider_profile.service_offered else '',
+                'service_price': getattr(provider_profile, 'service_price', ''),  # Will add this field
+                'latitude': provider_profile.last_known_latitude,
+                'longitude': provider_profile.last_known_longitude,
+            }
+            
+            return Response(response_data)
+            
+        except ServiceProviderProfile.DoesNotExist:
+            return Response(
+                {'error': 'Provider profile not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    def patch(self, request, format=None):
+        """Update the current provider's profile"""
+        try:
+            provider_profile = request.user.provider_profile
+            user = request.user
+            
+            # Update user fields
+            user_fields = ['username', 'email', 'first_name', 'last_name', 'phone_number']
+            for field in user_fields:
+                if field in request.data:
+                    setattr(user, field, request.data[field])
+            
+            # Update provider profile fields
+            if 'bio' in request.data:
+                provider_profile.bio = request.data['bio']
+            
+            if 'latitude' in request.data and 'longitude' in request.data:
+                provider_profile.last_known_latitude = request.data['latitude']
+                provider_profile.last_known_longitude = request.data['longitude']
+            
+            # Handle service selection
+            if 'service_id' in request.data and request.data['service_id']:
+                try:
+                    from .models import Service
+                    service = Service.objects.get(id=request.data['service_id'])
+                    provider_profile.service_offered = service
+                except Service.DoesNotExist:
+                    return Response(
+                        {'error': 'Invalid service selected'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Handle service price (we'll add this field)
+            if 'service_price' in request.data:
+                provider_profile.service_price = request.data['service_price']
+            
+            user.save()
+            provider_profile.save()
+            
+            return Response({'message': 'Profile updated successfully'})
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ProviderProfileViewSet(viewsets.ModelViewSet): # <-- Change from ReadOnlyModelViewSet
     """
     API endpoint to:
@@ -349,3 +500,243 @@ class MpesaCallbackView(APIView):
         
         # We must return a success response to M-Pesa's server
         return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'}, status=status.HTTP_200_OK)
+
+# --- Admin Views ---
+
+class AdminStatsView(APIView):
+    """
+    API endpoint for admin dashboard statistics.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdminUser]  # Admins only
+
+    def get(self, request, format=None):
+        """
+        Calculate and return key platform metrics.
+        """
+        try:
+            # Calculate key metrics
+            total_users = User.objects.count()
+            total_customers = User.objects.filter(user_type='CUSTOMER').count()
+            total_providers = User.objects.filter(user_type='PROVIDER').count()
+            verified_providers = User.objects.filter(
+                user_type='PROVIDER', 
+                provider_profile__is_verified=True
+            ).count()
+            
+            total_bookings = Booking.objects.count()
+            pending_bookings = Booking.objects.filter(status='PENDING').count()
+            completed_bookings = Booking.objects.filter(status='COMPLETED').count()
+            
+            total_services = ServiceCategory.objects.count()
+            
+            # Recent activity (last 30 days)
+            from datetime import timedelta
+            thirty_days_ago = timezone.now() - timedelta(days=30)
+            recent_bookings = Booking.objects.filter(created_at__gte=thirty_days_ago).count()
+            recent_users = User.objects.filter(date_joined__gte=thirty_days_ago).count()
+            
+            stats = {
+                'users': {
+                    'total': total_users,
+                    'customers': total_customers,
+                    'providers': total_providers,
+                    'verified_providers': verified_providers,
+                    'recent_signups': recent_users,
+                },
+                'bookings': {
+                    'total': total_bookings,
+                    'pending': pending_bookings,
+                    'completed': completed_bookings,
+                    'recent': recent_bookings,
+                },
+                'services': {
+                    'total_categories': total_services,
+                },
+                'activity': {
+                    'provider_approval_pending': total_providers - verified_providers,
+                }
+            }
+            
+            return Response(stats, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': 'Failed to calculate statistics'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminUserViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Admin to manage all users, with actions for activation,
+    suspension, and provider verification.
+    """
+    queryset = User.objects.all().select_related('provider_profile').prefetch_related(
+        'customer_bookings', 'provider_bookings'
+    ).order_by('-date_joined')
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """
+        Optionally filter users based on query parameters.
+        """
+        queryset = super().get_queryset()
+        
+        # Search functionality
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                Q(username__icontains=search) |
+                Q(email__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search)
+            )
+        
+        # Filter by user type
+        user_type = self.request.query_params.get('user_type', None)
+        if user_type:
+            queryset = queryset.filter(user_type=user_type)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            active_bool = is_active.lower() == 'true'
+            queryset = queryset.filter(is_active=active_bool)
+        
+        return queryset
+
+    @action(detail=True, methods=['post'], url_path='suspend')
+    def suspend(self, request, pk=None):
+        """Suspends (deactivates) a user's account."""
+        user = self.get_object()
+        
+        if user.is_superuser:
+            return Response(
+                {'error': 'Cannot suspend superuser accounts'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.is_active = False
+        user.save()
+        
+        # If it's a provider, also set them off duty
+        if user.user_type == 'PROVIDER' and hasattr(user, 'provider_profile'):
+            user.provider_profile.on_duty = False
+            user.provider_profile.save()
+        
+        serializer = self.get_serializer(user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='activate')
+    def activate(self, request, pk=None):
+        """Activates a suspended user's account."""
+        user = self.get_object()
+        user.is_active = True
+        user.save()
+        
+        serializer = self.get_serializer(user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='verify-provider')
+    def verify_provider(self, request, pk=None):
+        """Verifies a provider's profile, which also activates the user."""
+        user = self.get_object()
+        if user.user_type != 'PROVIDER':
+            return Response({'error': 'User is not a provider'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Activate the main user account as well
+            user.is_active = True
+            user.save()
+            
+            profile = user.provider_profile
+            profile.is_verified = True
+            profile.save()
+            
+            serializer = self.get_serializer(user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except AttributeError:
+            return Response({'error': 'Provider profile not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+class AdminRecentBookingsView(APIView):
+    """
+    API endpoint for recent bookings data for admin dashboard.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAdminUser]  # Admins only
+
+    def get(self, request, format=None):
+        """
+        Return recent bookings with basic information for admin dashboard.
+        """
+        try:
+            # Get recent bookings (last 10-20 bookings)
+            recent_bookings = Booking.objects.select_related(
+                'customer', 'provider', 'service'
+            ).order_by('-created_at')[:20]
+            
+            bookings_data = []
+            for booking in recent_bookings:
+                booking_info = {
+                    'id': str(booking.id),
+                    'customer': {
+                        'username': booking.customer.username if booking.customer else None,
+                        'email': booking.customer.email if booking.customer else None,
+                    },
+                    'provider': {
+                        'username': booking.provider.username if booking.provider else None,
+                        'email': booking.provider.email if booking.provider else None,
+                    },
+                    'service': {
+                        'name': booking.service.name if booking.service else None,
+                    },
+                    'status': booking.status,
+                    'created_at': booking.created_at.isoformat(),
+                    'accepted_at': booking.accepted_at.isoformat() if booking.accepted_at else None,
+                    'completed_at': booking.completed_at.isoformat() if booking.completed_at else None,
+                    'final_price': str(booking.final_price) if booking.final_price else None,
+                }
+                bookings_data.append(booking_info)
+            
+            return Response({
+                'bookings': bookings_data,
+                'total_count': len(bookings_data)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': 'Failed to fetch recent bookings'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ServiceListView(generics.ListAPIView):
+    """
+    API endpoint that lists services, optionally filtered by category.
+    """
+    serializer_class = ServiceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = Service.objects.select_related('category').all()
+        category = self.request.query_params.get('category', None)
+        if category is not None:
+            queryset = queryset.filter(category=category)
+        return queryset
+
+
+class ServiceCategoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing service categories (admin only).
+    """
+    queryset = ServiceCategory.objects.all()
+    serializer_class = AdminServiceCategorySerializer
+    permission_classes = [IsAdminUser]
+
+
+class ServiceViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing services (admin only).
+    """
+    queryset = Service.objects.select_related('category').all()
+    serializer_class = AdminServiceSerializer
+    permission_classes = [IsAdminUser]

@@ -11,6 +11,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CustomerDashboard from './pages/CustomerDashboard';
 import ProviderDashboard from './pages/ProviderDashboard';
+import ProviderSuspended from './pages/ProviderSuspended';
 import BookingStatusPage from './pages/BookingStatusPage';
 import AdminDashboard from './pages/AdminDashboard';
 import NotAuthorized from './pages/NotAuthorized';
@@ -18,6 +19,8 @@ import BookingHistory from './pages/BookingHistory';
 import UserProfile from './pages/UserProfile';
 import ProviderProfile from './pages/ProviderProfile';
 import ManageUsers from './pages/admin/ManageUsers';
+import ManageCategories from './pages/admin/ManageCategories';
+import ManageServices from './pages/admin/ManageServices';
 
 
 
@@ -28,6 +31,10 @@ const DashboardRedirect = () => {
         return <Navigate to="/admin/dashboard" />;
     }
     if (user?.user_type === 'PROVIDER') {
+        if (!user?.is_active) {
+            // Suspended provider - redirect to suspended page
+            return <Navigate to="/provider/suspended" />;
+        }
         return <ProviderDashboard />;
     }
     return <CustomerDashboard />;
@@ -117,6 +124,22 @@ function App() {
             <ManageUsers />
           </AdminRoute>
         } 
+      />
+      <Route 
+        path="/admin/categories" 
+        element={
+          <AdminRoute>
+            <ManageCategories />
+          </AdminRoute>
+        } 
+      />
+      <Route 
+        path="/admin/services" 
+        element={
+          <AdminRoute>
+            <ManageServices />
+          </AdminRoute>
+        } 
       />{/* User routes */}
       <Route 
         path="/history" 
@@ -136,6 +159,14 @@ function App() {
       />
 
       {/* Provider routes */}
+      <Route 
+        path="/provider/suspended" 
+        element={
+          <PrivateRoute>
+            <ProviderSuspended />
+          </PrivateRoute>
+        } 
+      />
       <Route 
         path="/provider/profile" 
         element={

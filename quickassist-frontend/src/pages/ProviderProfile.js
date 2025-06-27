@@ -1,5 +1,6 @@
 // In src/pages/ProviderProfile.js
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Container,
     Typography,
@@ -19,7 +20,9 @@ import {
     ListItemText,
     Rating,
     Avatar,
-    Divider
+    Divider,
+    Chip,
+    InputAdornment
 } from '@mui/material';
 import { 
     Edit as EditIcon, 
@@ -32,6 +35,7 @@ import Header from '../components/Header';
 import axiosInstance from '../api/axios';
 
 const ProviderProfile = () => {
+    const navigate = useNavigate();
     const [profileData, setProfileData] = useState({
         username: '',
         email: '',
@@ -47,7 +51,6 @@ const ProviderProfile = () => {
     const [originalProfileData, setOriginalProfileData] = useState({});
     const [categories, setCategories] = useState([]);
     const [services, setServices] = useState([]);
-    const [allServices, setAllServices] = useState([]);
     const [reviews, setReviews] = useState([]);
     const [profilePictureFile, setProfilePictureFile] = useState(null);
     const [profilePicturePreview, setProfilePicturePreview] = useState(null);
@@ -60,49 +63,60 @@ const ProviderProfile = () => {
     const [success, setSuccess] = useState('');
 
     useEffect(() => {
+        const fetchInitialData = async () => {
+            try {
+                setLoading(true);
+                
+                // Fetch profile data
+                const profileResponse = await axiosInstance.get('/users/provider/profile/');
+                const profileData = profileResponse.data;
+                
+                // Check if user is suspended
+                if (!profileData.is_active) {
+                    navigate('/provider/suspended');
+                    return;
+                }
+                
+                setProfileData(profileData);
+                setOriginalProfileData(profileData);
+                
+                // Fetch categories
+                const categoriesResponse = await axiosInstance.get('/categories/');
+                setCategories(categoriesResponse.data);
+                
+                // Fetch reviews
+                const reviewsResponse = await axiosInstance.get('/reviews/provider/');
+                setReviews(reviewsResponse.data);
+                
+            } catch (err) {
+                console.error('Failed to fetch profile data:', err);
+                setError('Failed to load profile data. Please try again.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        
         fetchInitialData();
-    }, []);
+    }, [navigate]);
 
+    // Fetch services when category changes
     useEffect(() => {
-        // Filter services based on selected category
-        if (profileData.service_category) {
-            const categoryServices = allServices.filter(
-                service => service.category === parseInt(profileData.service_category)
-            );
-            setServices(categoryServices);
-        } else {
-            setServices([]);
-        }
-    }, [profileData.service_category, allServices]);
+        const fetchServices = async () => {
+            if (profileData.service_category) {
+                try {
+                    const response = await axiosInstance.get(`/services/?category=${profileData.service_category}`);
+                    setServices(response.data);
+                } catch (err) {
+                    console.error('Failed to fetch services:', err);
+                    setServices([]);
+                }
+            } else {
+                setServices([]);
+            }
+        };
 
-    const fetchInitialData = async () => {
-        try {
-            setLoading(true);
-            
-            // Fetch profile data
-            const profileResponse = await axiosInstance.get('/users/provider/profile/');
-            setProfileData(profileResponse.data);
-            setOriginalProfileData(profileResponse.data);
-            
-            // Fetch categories
-            const categoriesResponse = await axiosInstance.get('/categories/');
-            setCategories(categoriesResponse.data);
-            
-            // Fetch all services
-            const servicesResponse = await axiosInstance.get('/services/');
-            setAllServices(servicesResponse.data);
-            
-            // Fetch reviews
-            const reviewsResponse = await axiosInstance.get('/reviews/provider/');
-            setReviews(reviewsResponse.data);
-            
-        } catch (err) {
-            console.error('Failed to fetch profile data:', err);
-            setError('Failed to load profile data. Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
+        fetchServices();
+    }, [profileData.service_category]);
 
     const handleProfileChange = (field) => (event) => {
         setProfileData(prev => ({
@@ -286,6 +300,22 @@ const ProviderProfile = () => {
                     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                     {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
+                    {/* Verification Status */}
+                    <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+                        <Chip
+                            label={profileData.is_verified ? 'Status: Verified' : 'Status: Pending Approval'}
+                            color={profileData.is_verified ? 'success' : 'warning'}
+                            variant="outlined"
+                            size="medium"
+                            sx={{ 
+                                fontSize: '1rem', 
+                                py: 1, 
+                                px: 2,
+                                fontWeight: 'bold'
+                            }}
+                        />
+                    </Box>
+
                     <Grid container spacing={3}>
                         {/* Profile Picture */}
                         <Grid item xs={12} sx={{ textAlign: 'center', mb: 2 }}>
@@ -393,10 +423,10 @@ const ProviderProfile = () => {
                         </Grid>
                         <Grid item xs={12} sm={6}>
                             <FormControl fullWidth disabled={!isEditing || !profileData.service_category}>
-                                <InputLabel>Service</InputLabel>
+                                <InputLabel>Your Specific Service</InputLabel>
                                 <Select
                                     value={profileData.service_id}
-                                    label="Service"
+                                    label="Your Specific Service"
                                     onChange={handleProfileChange('service_id')}
                                 >
                                     {services.map((service) => (
@@ -410,13 +440,16 @@ const ProviderProfile = () => {
                         <Grid item xs={12} sm={6}>
                             <TextField
                                 fullWidth
-                                label="Service Price (KES)"
+                                label="Service Price"
                                 type="number"
                                 value={profileData.service_price}
                                 onChange={handleProfileChange('service_price')}
                                 disabled={!isEditing}
                                 variant="outlined"
                                 inputProps={{ min: 0 }}
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start">Tsh</InputAdornment>,
+                                }}
                             />
                         </Grid>
                     </Grid>

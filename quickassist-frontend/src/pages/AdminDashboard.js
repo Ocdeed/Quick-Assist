@@ -28,7 +28,7 @@ import axiosInstance from '../api/axios';
 
 const AdminDashboard = () => {
     const [stats, setStats] = useState(null);
-    const [recentBookings, setRecentBookings] = useState(null);
+    const [recentBookings, setRecentBookings] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -46,7 +46,9 @@ const AdminDashboard = () => {
 
             // Fetch recent bookings data
             const bookingsResponse = await axiosInstance.get('/admin/recent-bookings/');
-            setRecentBookings(bookingsResponse.data);
+            // Safely extract bookings array with fallback
+            const bookingsData = bookingsResponse.data;
+            setRecentBookings(Array.isArray(bookingsData) ? bookingsData : (bookingsData?.bookings || []));
 
         } catch (err) {
             console.error('Failed to fetch dashboard data:', err);
@@ -62,6 +64,7 @@ const AdminDashboard = () => {
             'IN_PROGRESS': 'primary',
             'ACCEPTED': 'info',
             'PENDING': 'warning',
+            'REJECTED': 'error',
             'CANCELLED': 'error'
         };
         return statusColors[status] || 'default';
@@ -155,7 +158,7 @@ const AdminDashboard = () => {
                 )}
 
                 {/* Recent Bookings Table */}
-                {recentBookings && (
+                {recentBookings.length > 0 && (
                     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
                         <Typography variant="h5" component="h2" sx={{ p: 2, pb: 0 }}>
                             Recent Bookings
@@ -177,7 +180,7 @@ const AdminDashboard = () => {
                                     {recentBookings.map((booking) => (
                                         <TableRow key={booking.id} hover>
                                             <TableCell component="th" scope="row">
-                                                #{booking.id}
+                                                #{booking.id?.substring(0, 8) || 'N/A'}
                                             </TableCell>
                                             <TableCell>
                                                 {booking.customer?.username || 'N/A'}
@@ -196,7 +199,7 @@ const AdminDashboard = () => {
                                                 />
                                             </TableCell>
                                             <TableCell align="right">
-                                                {booking.amount ? formatCurrency(booking.amount) : 'N/A'}
+                                                {booking.final_price ? formatCurrency(booking.final_price) : 'N/A'}
                                             </TableCell>
                                             <TableCell>
                                                 {booking.created_at ? formatDate(booking.created_at) : 'N/A'}

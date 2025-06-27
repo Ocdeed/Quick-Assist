@@ -13,7 +13,7 @@ const ServiceCategoryList = ({ onBook, searchTerm = '', selectedCategory = '' })
     useEffect(() => {
         const fetchServices = async () => {
             try {
-                const response = await axiosInstance.get('/services/');
+                const response = await axiosInstance.get('/categories/');
                 setServiceData(response.data);
             } catch (err) {
                 setError('Failed to load services. Please try again later.');
@@ -31,8 +31,11 @@ const ServiceCategoryList = ({ onBook, searchTerm = '', selectedCategory = '' })
             return null;
         }
 
+        // Ensure category.services exists and is an array
+        const services = category.services || [];
+        
         // Filter services within the category based on search term
-        const filteredServices = category.services.filter(service =>
+        const filteredServices = services.filter(service =>
             service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             service.description?.toLowerCase().includes(searchTerm.toLowerCase())
         );

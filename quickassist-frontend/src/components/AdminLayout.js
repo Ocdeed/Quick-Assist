@@ -23,7 +23,9 @@ import {
     Payment as PaymentIcon,
     Assessment as AssessmentIcon,
     Settings as SettingsIcon,
-    Logout as LogoutIcon
+    Logout as LogoutIcon,
+    Category as CategoryIcon,
+    Build as BuildIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -46,6 +48,8 @@ const AdminLayout = ({ children }) => {
     const menuItems = [
         { text: 'Dashboard', icon: <DashboardIcon />, path: '/admin/dashboard' },
         { text: 'Manage Users', icon: <PeopleIcon />, path: '/admin/users' },
+        { text: 'Manage Categories', icon: <CategoryIcon />, path: '/admin/categories' },
+        { text: 'Manage Services', icon: <BuildIcon />, path: '/admin/services' },
         { text: 'View Transactions', icon: <PaymentIcon />, path: '/admin/transactions' },
         { text: 'Reports', icon: <AssessmentIcon />, path: '/admin/reports' },
         { text: 'Settings', icon: <SettingsIcon />, path: '/admin/settings' },

@@ -24,3 +24,11 @@ class IsProfileOwner(permissions.BasePermission):
         # Write permissions are only allowed to the owner of the profile.
         # `obj` here is the ServiceProviderProfile instance.
         return obj.user == request.user
+    
+class IsAdminUser(permissions.BasePermission):
+    """
+    Custom permission to only allow users with the 'ADMIN' user_type.
+    """
+    def has_permission(self, request, view):
+        # Check if the user is authenticated and if their user_type is 'ADMIN'.
+        return request.user and request.user.is_authenticated and request.user.user_type == 'ADMIN'

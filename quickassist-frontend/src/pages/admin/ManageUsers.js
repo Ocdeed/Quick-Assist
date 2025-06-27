@@ -1,5 +1,5 @@
 // In src/pages/admin/ManageUsers.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Container,
     Typography,
@@ -22,24 +22,18 @@ import {
     Select,
     MenuItem,
     Grid,
-    IconButton,
-    Menu,
-    ListItemText,
-    ListItemIcon,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogContentText,
     DialogActions,
-    Button
+    Button,
+    Modal
 } from '@mui/material';
 import {
-    MoreVert as MoreVertIcon,
-    CheckCircle as ApproveIcon,
-    Block as SuspendIcon,
-    PlayArrow as ActivateIcon,
     Person as PersonIcon,
-    Business as BusinessIcon
+    Business as BusinessIcon,
+    VerifiedUser as VerifyIcon
 } from '@mui/icons-material';
 import AdminLayout from '../../components/AdminLayout';
 import axiosInstance from '../../api/axios';
@@ -62,10 +56,14 @@ const ManageUsers = () => {
     const [userTypeFilter, setUserTypeFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     
-    // Action menu state
-    const [anchorEl, setAnchorEl] = useState(null);
-    const [selectedUser, setSelectedUser] = useState(null);
+    // Action loading state
     const [actionLoading, setActionLoading] = useState(false);
+    
+    // User detail modal state
+    const [userDetailModal, setUserDetailModal] = useState({
+        open: false,
+        user: null
+    });
     
     // Confirmation dialog state
     const [confirmDialog, setConfirmDialog] = useState({
@@ -75,14 +73,6 @@ const ManageUsers = () => {
         action: null,
         user: null
     });
-
-    useEffect(() => {
-        fetchUsers();
-    }, []);
-
-    useEffect(() => {
-        filterUsers();
-    }, [users, searchTerm, userTypeFilter, statusFilter]);
 
     const fetchUsers = async () => {
         try {
@@ -97,7 +87,7 @@ const ManageUsers = () => {
         }
     };
 
-    const filterUsers = () => {
+    const filterUsers = useCallback(() => {
         let filtered = [...users];
 
         // Apply search filter
@@ -117,11 +107,29 @@ const ManageUsers = () => {
 
         // Apply status filter
         if (statusFilter) {
-            filtered = filtered.filter(user => user.status === statusFilter);
+            if (statusFilter === 'ACTIVE') {
+                filtered = filtered.filter(user => user.is_active === true);
+            } else if (statusFilter === 'SUSPENDED') {
+                filtered = filtered.filter(user => user.is_active === false);
+            } else if (statusFilter === 'PENDING' && statusFilter === 'PROVIDER') {
+                filtered = filtered.filter(user => 
+                    user.user_type === 'PROVIDER' && 
+                    user.provider_profile && 
+                    !user.provider_profile.is_verified
+                );
+            }
         }
 
         setFilteredUsers(filtered);
-    };
+    }, [users, searchTerm, userTypeFilter, statusFilter]);
+
+    useEffect(() => {
+        fetchUsers();
+    }, []);
+
+    useEffect(() => {
+        filterUsers();
+    }, [filterUsers]);
 
     const handleSort = (property) => {
         const isAsc = orderBy === property && order === 'asc';
@@ -138,14 +146,32 @@ const ManageUsers = () => {
         setPage(0);
     };
 
-    const handleActionMenu = (event, user) => {
-        setAnchorEl(event.currentTarget);
-        setSelectedUser(user);
+    // Direct action handlers for the new button-based interface
+    const handleActivate = (user) => {
+        handleConfirmAction(
+            'activate',
+            user,
+            'Activate User',
+            `Are you sure you want to activate user ${getFullName(user)}?`
+        );
     };
 
-    const handleCloseActionMenu = () => {
-        setAnchorEl(null);
-        setSelectedUser(null);
+    const handleSuspend = (user) => {
+        handleConfirmAction(
+            'suspend',
+            user,
+            'Suspend User',
+            `Are you sure you want to suspend user ${getFullName(user)}? This action will prevent them from using the platform.`
+        );
+    };
+
+    const handleVerify = (user) => {
+        handleConfirmAction(
+            'verify-provider',
+            user,
+            'Verify Provider',
+            `Are you sure you want to verify provider ${getFullName(user)}? This will mark them as a trusted service provider.`
+        );
     };
 
     const handleConfirmAction = (action, user, title, message) => {
@@ -156,7 +182,6 @@ const ManageUsers = () => {
             action,
             user
         });
-        handleCloseActionMenu();
     };
 
     const handleCloseConfirmDialog = () => {
@@ -174,28 +199,57 @@ const ManageUsers = () => {
         
         try {
             setActionLoading(true);
-            await axiosInstance.post(`/admin/users/${user.id}/${action}/`);
+            const response = await axiosInstance.post(`/admin/users/${user.id}/${action}/`);
             
-            // Refresh users list
-            await fetchUsers();
-            setSuccess(`User ${action} successful!`);
+            // Update local state with the updated user data
+            setUsers(prevUsers => 
+                prevUsers.map(u => 
+                    u.id === user.id ? response.data : u
+                )
+            );
+            
+            setSuccess(`User ${action.replace('_', ' ')} successful!`);
         } catch (err) {
             console.error(`Failed to ${action} user:`, err);
-            setError(`Failed to ${action} user. Please try again.`);
+            setError(`Failed to ${action.replace('_', ' ')} user. Please try again.`);
         } finally {
             setActionLoading(false);
             handleCloseConfirmDialog();
         }
     };
 
-    const getStatusColor = (status) => {
+    const getUserStatus = (user) => {
+        if (!user.is_active) {
+            return 'SUSPENDED';
+        }
+        if (user.user_type === 'PROVIDER' && user.provider_profile && !user.provider_profile.is_verified) {
+            return 'PENDING';
+        }
+        return 'ACTIVE';
+    };
+
+    const getStatusColor = (user) => {
+        const status = getUserStatus(user);
         const statusColors = {
             'ACTIVE': 'success',
             'SUSPENDED': 'error',
-            'PENDING': 'warning',
-            'INACTIVE': 'default'
+            'PENDING': 'warning'
         };
         return statusColors[status] || 'default';
+    };
+
+    const handleRowClick = (user) => {
+        setUserDetailModal({
+            open: true,
+            user: user
+        });
+    };
+
+    const handleCloseUserDetail = () => {
+        setUserDetailModal({
+            open: false,
+            user: null
+        });
     };
 
     const getUserTypeIcon = (userType) => {
@@ -309,8 +363,7 @@ const ManageUsers = () => {
                                     <MenuItem value="">All Statuses</MenuItem>
                                     <MenuItem value="ACTIVE">Active</MenuItem>
                                     <MenuItem value="SUSPENDED">Suspended</MenuItem>
-                                    <MenuItem value="PENDING">Pending</MenuItem>
-                                    <MenuItem value="INACTIVE">Inactive</MenuItem>
+                                    <MenuItem value="PENDING">Pending Verification</MenuItem>
                                 </Select>
                             </FormControl>
                         </Grid>
@@ -351,6 +404,7 @@ const ManageUsers = () => {
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>User Type</TableCell>
+                                    <TableCell>Provider Status</TableCell>
                                     <TableCell>
                                         <TableSortLabel
                                             active={orderBy === 'status'}
@@ -374,7 +428,12 @@ const ManageUsers = () => {
                             </TableHead>
                             <TableBody>
                                 {paginatedUsers.map((user) => (
-                                    <TableRow key={user.id} hover>
+                                    <TableRow 
+                                        key={user.id} 
+                                        hover 
+                                        onClick={() => handleRowClick(user)}
+                                        sx={{ cursor: 'pointer' }}
+                                    >
                                         <TableCell>#{user.id}</TableCell>
                                         <TableCell>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -399,20 +458,74 @@ const ManageUsers = () => {
                                             />
                                         </TableCell>
                                         <TableCell>
+                                            {user.user_type === 'PROVIDER' && user.provider_profile ? (
+                                                <Chip
+                                                    label={user.provider_profile.is_verified ? 'Verified' : 'Unverified'}
+                                                    color={user.provider_profile.is_verified ? 'success' : 'warning'}
+                                                    size="small"
+                                                    icon={user.provider_profile.is_verified ? <VerifyIcon /> : null}
+                                                />
+                                            ) : (
+                                                <Typography variant="caption" color="text.secondary">
+                                                    N/A
+                                                </Typography>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
                                             <Chip
-                                                label={user.status}
-                                                color={getStatusColor(user.status)}
+                                                label={getUserStatus(user)}
+                                                color={getStatusColor(user)}
                                                 size="small"
                                             />
                                         </TableCell>
                                         <TableCell>{formatDate(user.date_joined)}</TableCell>
                                         <TableCell>
-                                            <IconButton
-                                                onClick={(e) => handleActionMenu(e, user)}
-                                                size="small"
-                                            >
-                                                <MoreVertIcon />
-                                            </IconButton>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                {/* Show VERIFY button if user is a provider and is NOT verified */}
+                                                {user.user_type === 'PROVIDER' && user.provider_profile && !user.provider_profile.is_verified && (
+                                                    <Button
+                                                        size="small"
+                                                        variant="contained"
+                                                        color="secondary"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleVerify(user);
+                                                        }}
+                                                    >
+                                                        Verify
+                                                    </Button>
+                                                )}
+
+                                                {/* Show SUSPEND button if user IS active */}
+                                                {user.is_active && !user.is_superuser && (
+                                                    <Button
+                                                        size="small"
+                                                        variant="contained"
+                                                        color="error"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSuspend(user);
+                                                        }}
+                                                    >
+                                                        Suspend
+                                                    </Button>
+                                                )}
+
+                                                {/* Show ACTIVATE button if user is NOT active */}
+                                                {!user.is_active && (
+                                                    <Button
+                                                        size="small"
+                                                        variant="contained"
+                                                        color="success"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleActivate(user);
+                                                        }}
+                                                    >
+                                                        Activate
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -429,65 +542,6 @@ const ManageUsers = () => {
                         onRowsPerPageChange={handleChangeRowsPerPage}
                     />
                 </Paper>
-
-                {/* Action Menu */}
-                <Menu
-                    anchorEl={anchorEl}
-                    open={Boolean(anchorEl)}
-                    onClose={handleCloseActionMenu}
-                >
-                    {selectedUser?.status !== 'ACTIVE' && (
-                        <MenuItem
-                            onClick={() =>
-                                handleConfirmAction(
-                                    'approve',
-                                    selectedUser,
-                                    'Approve User',
-                                    `Are you sure you want to approve user ${getFullName(selectedUser)}?`
-                                )
-                            }
-                        >
-                            <ListItemIcon>
-                                <ApproveIcon color="success" />
-                            </ListItemIcon>
-                            <ListItemText>Approve Account</ListItemText>
-                        </MenuItem>
-                    )}
-                    {selectedUser?.status === 'ACTIVE' && (
-                        <MenuItem
-                            onClick={() =>
-                                handleConfirmAction(
-                                    'suspend',
-                                    selectedUser,
-                                    'Suspend User',
-                                    `Are you sure you want to suspend user ${getFullName(selectedUser)}? This action will prevent them from using the platform.`
-                                )
-                            }
-                        >
-                            <ListItemIcon>
-                                <SuspendIcon color="error" />
-                            </ListItemIcon>
-                            <ListItemText>Suspend Account</ListItemText>
-                        </MenuItem>
-                    )}
-                    {selectedUser?.status === 'SUSPENDED' && (
-                        <MenuItem
-                            onClick={() =>
-                                handleConfirmAction(
-                                    'activate',
-                                    selectedUser,
-                                    'Activate User',
-                                    `Are you sure you want to activate user ${getFullName(selectedUser)}?`
-                                )
-                            }
-                        >
-                            <ListItemIcon>
-                                <ActivateIcon color="primary" />
-                            </ListItemIcon>
-                            <ListItemText>Activate Account</ListItemText>
-                        </MenuItem>
-                    )}
-                </Menu>
 
                 {/* Confirmation Dialog */}
                 <Dialog
@@ -518,6 +572,114 @@ const ManageUsers = () => {
                         </Button>
                     </DialogActions>
                 </Dialog>
+
+                {/* User Detail Modal */}
+                <Modal
+                    open={userDetailModal.open}
+                    onClose={handleCloseUserDetail}
+                    aria-labelledby="user-detail-modal-title"
+                >
+                    <Box sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: 500,
+                        bgcolor: 'background.paper',
+                        border: '2px solid #000',
+                        boxShadow: 24,
+                        p: 4,
+                        borderRadius: 2,
+                        maxHeight: '80vh',
+                        overflow: 'auto'
+                    }}>
+                        {userDetailModal.user && (
+                            <>
+                                <Typography id="user-detail-modal-title" variant="h5" component="h2" gutterBottom>
+                                    User Details
+                                </Typography>
+                                <Grid container spacing={2}>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">Full Name:</Typography>
+                                        <Typography variant="body1">{getFullName(userDetailModal.user)}</Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">Username:</Typography>
+                                        <Typography variant="body1">@{userDetailModal.user.username}</Typography>
+                                    </Grid>
+                                    <Grid item xs={12}>
+                                        <Typography variant="body2" color="text.secondary">Email:</Typography>
+                                        <Typography variant="body1">{userDetailModal.user.email}</Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">Phone Number:</Typography>
+                                        <Typography variant="body1">{userDetailModal.user.phone_number || 'N/A'}</Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">User Type:</Typography>
+                                        <Chip
+                                            label={userDetailModal.user.user_type}
+                                            color={userDetailModal.user.user_type === 'PROVIDER' ? 'primary' : 'default'}
+                                            size="small"
+                                            icon={getUserTypeIcon(userDetailModal.user.user_type)}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">Account Status:</Typography>
+                                        <Chip
+                                            label={getUserStatus(userDetailModal.user)}
+                                            color={getStatusColor(userDetailModal.user)}
+                                            size="small"
+                                        />
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">Date Joined:</Typography>
+                                        <Typography variant="body1">{formatDate(userDetailModal.user.date_joined)}</Typography>
+                                    </Grid>
+                                    {userDetailModal.user.user_type === 'PROVIDER' && userDetailModal.user.provider_profile && (
+                                        <>
+                                            <Grid item xs={12}>
+                                                <Typography variant="h6" sx={{ mt: 2 }}>Provider Information</Typography>
+                                            </Grid>
+                                            <Grid item xs={6}>
+                                                <Typography variant="body2" color="text.secondary">Verification Status:</Typography>
+                                                <Chip
+                                                    label={userDetailModal.user.provider_profile.is_verified ? 'Verified' : 'Unverified'}
+                                                    color={userDetailModal.user.provider_profile.is_verified ? 'success' : 'warning'}
+                                                    size="small"
+                                                    icon={userDetailModal.user.provider_profile.is_verified ? <VerifyIcon /> : null}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={6}>
+                                                <Typography variant="body2" color="text.secondary">Service Offered:</Typography>
+                                                <Typography variant="body1">
+                                                    {userDetailModal.user.provider_profile.service_offered || 'Not specified'}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={6}>
+                                                <Typography variant="body2" color="text.secondary">Average Rating:</Typography>
+                                                <Typography variant="body1">
+                                                    {userDetailModal.user.provider_profile.average_rating || 'No ratings yet'}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={6}>
+                                                <Typography variant="body2" color="text.secondary">Total Bookings:</Typography>
+                                                <Typography variant="body1">
+                                                    {userDetailModal.user.total_bookings || 0}
+                                                </Typography>
+                                            </Grid>
+                                        </>
+                                    )}
+                                </Grid>
+                                <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Button onClick={handleCloseUserDetail} variant="contained">
+                                        Close
+                                    </Button>
+                                </Box>
+                            </>
+                        )}
+                    </Box>
+                </Modal>
             </Container>
         </AdminLayout>
     );

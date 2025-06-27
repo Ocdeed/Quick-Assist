@@ -8,6 +8,7 @@ from django.dispatch import receiver
 # --- Core User Model ---
 class User(AbstractUser):
     USER_TYPE_CHOICES = (
+        ('ADMIN', 'Admin'),
         ('CUSTOMER', 'Customer'),
         ('PROVIDER', 'Provider'),
     )
@@ -21,6 +22,8 @@ class User(AbstractUser):
 # --- Service Provider Specific Data ---
 class ServiceProviderProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True, related_name='provider_profile')
+    service_offered = models.ForeignKey('Service', on_delete=models.SET_NULL, null=True, blank=True, help_text="The single service this provider offers")
+    service_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Provider's price for their service")
     bio = models.TextField(blank=True)
     is_verified = models.BooleanField(default=False)
     on_duty = models.BooleanField(default=False)

@@ -1,5 +1,6 @@
 // In src/pages/ProviderDashboard.js
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     Container, 
     Typography, 
@@ -19,7 +20,9 @@ import Header from '../components/Header';
 import axiosInstance from '../api/axios';
 
 const ProviderDashboard = () => {
+    const navigate = useNavigate();
     const [isOnDuty, setIsOnDuty] = useState(false);
+    const [isVerified, setIsVerified] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [dutyToggleLoading, setDutyToggleLoading] = useState(false);
@@ -30,10 +33,22 @@ const ProviderDashboard = () => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                // Fetch user profile to get on-duty status
+                // Fetch user profile to get on-duty and verification status
                 const profileResponse = await axiosInstance.get('/users/me/');
-                const onDutyStatus = profileResponse.data.provider_profile?.is_on_duty || false;
+                const user = profileResponse.data;
+                
+                // Check if user is suspended
+                if (!user.is_active) {
+                    navigate('/provider/suspended');
+                    return;
+                }
+                
+                const providerProfile = user.provider_profile;
+                const onDutyStatus = providerProfile?.is_on_duty || false;
+                const verifiedStatus = providerProfile?.is_verified || false;
+                
                 setIsOnDuty(onDutyStatus);
+                setIsVerified(verifiedStatus);
                 
                 // Fetch jobs for the provider
                 await fetchJobs();
@@ -47,11 +62,11 @@ const ProviderDashboard = () => {
         };
 
         fetchData();
-    }, []);
+    }, [navigate]);
 
     const fetchJobs = async () => {
         try {
-            const response = await axiosInstance.get('/bookings/provider/');
+            const response = await axiosInstance.get('/bookings/');
             const jobs = response.data;
             
             // Separate jobs by status
@@ -76,7 +91,7 @@ const ProviderDashboard = () => {
 
         try {
             // Make API call to update on-duty status
-            await axiosInstance.patch('/users/provider/profile/', {
+            await axiosInstance.patch('/provider/status/', {
                 is_on_duty: newDutyStatus
             });
         } catch (err) {
@@ -93,7 +108,8 @@ const ProviderDashboard = () => {
         setJobActionLoading(prev => ({ ...prev, [bookingId]: action }));
         
         try {
-            await axiosInstance.post(`/bookings/${bookingId}/${action}/`);
+            const endpoint = action === 'accept' ? 'accept_booking' : 'decline_booking';
+            await axiosInstance.post(`/bookings/${bookingId}/${endpoint}/`);
             // Refresh jobs list after successful action
             await fetchJobs();
         } catch (err) {
@@ -141,6 +157,22 @@ const ProviderDashboard = () => {
                     Provider Dashboard
                 </Typography>
 
+                {/* Verification Status */}
+                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+                    <Chip
+                        label={isVerified ? 'Verified Provider' : 'Pending Approval'}
+                        color={isVerified ? 'success' : 'warning'}
+                        variant="filled"
+                        size="medium"
+                        sx={{ 
+                            fontSize: '0.9rem', 
+                            py: 1, 
+                            px: 2,
+                            fontWeight: 'bold'
+                        }}
+                    />
+                </Box>
+
                 {/* Error Alert */}
                 {error && (
                     <Alert severity="error" sx={{ mb: 3 }}>
@@ -155,7 +187,7 @@ const ProviderDashboard = () => {
                             <Switch
                                 checked={isOnDuty}
                                 onChange={handleToggleDuty}
-                                disabled={dutyToggleLoading}
+                                disabled={dutyToggleLoading || !isVerified}
                                 color="primary"
                             />
                         }
@@ -169,9 +201,11 @@ const ProviderDashboard = () => {
                         }
                     />
                     <Typography variant="body2" color="text.secondary" sx={{ ml: 4 }}>
-                        {isOnDuty 
-                            ? 'You are currently available to receive job requests' 
-                            : 'You will not receive new job requests while off duty'
+                        {!isVerified 
+                            ? 'Your account is pending admin approval. You cannot go on duty until you are verified.'
+                            : isOnDuty 
+                                ? 'You are currently available to receive job requests' 
+                                : 'You will not receive new job requests while off duty'
                         }
                     </Typography>
                 </Box>                {/* Future: Jobs list will go here */}
